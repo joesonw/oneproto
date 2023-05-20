@@ -129,8 +129,11 @@ func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *
 			}
 			resolveMessageExtends(buf, indentLevel, parent)
 			message.Field = append(message.Field, parent.Field...)
+			if message.Options == nil {
+				message.Options = &descriptorpb.MessageOptions{}
+			}
 			if *pOptions {
-				message.Options.UninterpretedOption = append(message.Options.UninterpretedOption, parent.Options.UninterpretedOption...)
+				message.Options.UninterpretedOption = append(message.Options.UninterpretedOption, parent.GetOptions().GetUninterpretedOption()...)
 			}
 		}
 	}
