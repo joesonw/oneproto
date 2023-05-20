@@ -1,19 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
 	"strings"
 
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/samber/lo"
 	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/types/descriptorpb"
+
+	oneprotou_til "github.com/joesonw/oneproto/util"
 )
 
 var (
@@ -23,6 +24,7 @@ var (
 	pPackage  = pflag.StringP("package", "P", "", "package name")
 
 	allMessageDescriptors = map[string]*descriptorpb.DescriptorProto{}
+	parentResolvedMap     = map[*descriptorpb.DescriptorProto]bool{}
 )
 
 func main() {
@@ -51,7 +53,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	parser := protoparse.Parser{}
+	parser := protoparse.Parser{
+		IncludeSourceCodeInfo: true,
+	}
 	files, err := parser.ParseFilesButDoNotLink(lo.Map(entries, func(entry string, index int) string {
 		return filepath.Join(*pInclude, entry)
 	})...)
@@ -59,7 +63,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	buf := &Buffer{buf: &bytes.Buffer{}}
+	buf := oneprotou_til.NewBuffer()
 	buf.Printf(string(templateContent))
 
 	// group files by package name
@@ -83,17 +87,21 @@ func main() {
 
 		for _, file := range packageFiles {
 			for _, enum := range file.EnumType {
-				generateEnum(buf, indentLevel, enum)
+				oneprotou_til.GenerateEnum(buf, indentLevel, enum)
 				buf.Printf("")
 			}
 
 			for _, service := range file.Service {
-				generateService(buf, indentLevel, service)
+				oneprotou_til.GenerateService(buf, indentLevel, service)
 				buf.Printf("")
 			}
 
 			for _, message := range file.GetMessageType() {
-				generateMessage(buf, indentLevel, message)
+				message.Field = append(message.Field, resolveMessageExtends(buf, indentLevel, message)...)
+				sort.Slice(message.Field, func(i, j int) bool {
+					return message.Field[i].GetNumber() < message.Field[j].GetNumber()
+				})
+				oneprotou_til.GenerateMessage(buf, indentLevel, message)
 				buf.Printf("")
 			}
 		}
@@ -108,152 +116,29 @@ func main() {
 	}
 }
 
-type Buffer struct {
-	buf *bytes.Buffer
-}
-
-func (b *Buffer) Printf(f string, i ...any) {
-	_, _ = b.buf.WriteString(fmt.Sprintf(f+"\n", i...))
-}
-
-func (b *Buffer) String() string {
-	return b.buf.String()
-}
-
-func (b *Buffer) Bytes() []byte {
-	return b.buf.Bytes()
-}
-
-func stringifyUninterpretedOption(opt *descriptorpb.UninterpretedOption) string {
-	var value string
-	if v := opt.IdentifierValue; v != nil {
-		value = *v
-	} else if v := opt.DoubleValue; v != nil {
-		value = strconv.FormatFloat(*v, 'f', -1, 64)
-	} else if v := opt.AggregateValue; v != nil {
-		value = fmt.Sprintf("{%s}", *v)
-	} else if v := opt.StringValue; v != nil {
-		value = fmt.Sprintf("'%s'", v)
-	} else if v := opt.PositiveIntValue; v != nil {
-		value = strconv.Itoa(int(*v))
-	} else if v := opt.NegativeIntValue; v != nil {
-		value = strconv.Itoa(int(*v))
+func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *descriptorpb.DescriptorProto) []*descriptorpb.FieldDescriptorProto {
+	if parentResolvedMap[message] {
+		return nil
 	}
-	return fmt.Sprintf("(%s) = %s", strings.Join(lo.Map(opt.GetName(), func(name *descriptorpb.UninterpretedOption_NamePart, index int) string {
-		return name.GetNamePart()
-	}), ","), value)
-}
-
-func stringifyField(message *descriptorpb.DescriptorProto, field *descriptorpb.FieldDescriptorProto) string {
-	repeated := field.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
-	if field.Type == nil {
-		name := field.GetTypeName()
-		for _, nested := range message.NestedType {
-			if name == nested.GetName() && strings.HasSuffix(name, "Entry") { // map entry
-				return fmt.Sprintf("map<%s,%s>", stringifyField(nested, nested.Field[0]), stringifyField(nested, nested.Field[1]))
+	parentResolvedMap[message] = true
+	var fields []*descriptorpb.FieldDescriptorProto
+	for i, option := range message.GetOptions().GetUninterpretedOption() {
+		if isOptionOneProtoExtends(option) {
+			message.Options.UninterpretedOption = append(message.Options.UninterpretedOption[:i], message.Options.UninterpretedOption[i+1:]...)
+			buf.Printf("%s// extends %s", strings.Repeat(" ", 4*indentLevel), option.GetStringValue())
+			parent := allMessageDescriptors[trimPackageFromName(string(option.GetStringValue()))]
+			if parent == nil {
+				log.Fatalf("unable to find message %s", option.GetStringValue())
 			}
-		}
-		if repeated {
-			return "repeated " + name
-		}
-		return name
-	}
-	name := strings.ToLower(field.GetType().String()[5:])
-	if repeated {
-		name = "repeated " + name
-	}
-	return name
-}
-
-func generateService(buf *Buffer, indentLevel int, service *descriptorpb.ServiceDescriptorProto) {
-	indent := strings.Repeat(" ", indentLevel*4)
-	buf.Printf("%sservice %s {", indent, service.GetName())
-	generateHeadOptions(buf, indent, service.GetOptions().GetUninterpretedOption())
-	for _, method := range service.Method {
-		buf.Printf("%s    rpc %s(%s) returns (%s) {", indent, method.GetName(), method.GetInputType(), method.GetOutputType())
-		for _, opt := range method.GetOptions().GetUninterpretedOption() {
-			buf.Printf("%s        option %s;", indent, stringifyUninterpretedOption(opt))
-		}
-		buf.Printf("%s    }", indent)
-		buf.Printf("")
-	}
-	buf.Printf("%s}", indent)
-}
-
-func generateEnum(buf *Buffer, indentLevel int, enum *descriptorpb.EnumDescriptorProto) {
-	indent := strings.Repeat(" ", indentLevel*4)
-	buf.Printf("%senum %s {", indent, enum.GetName())
-	generateHeadOptions(buf, indent, enum.GetOptions().GetUninterpretedOption())
-
-	for _, value := range enum.Value {
-		buf.Printf("%s    %s  = %d%s;", indent, value.GetName(), value.GetNumber(), stringifyValueOptions(value.GetOptions().GetUninterpretedOption()))
-	}
-	buf.Printf("%s}", indent)
-}
-
-func generateMessage(buf *Buffer, indentLevel int, message *descriptorpb.DescriptorProto) {
-	indent := strings.Repeat(" ", indentLevel*4)
-	buf.Printf("%smessage %s {", indent, message.GetName())
-	generateHeadOptions(buf, indent, message.GetOptions().GetUninterpretedOption())
-	generateExtendedMessage(buf, indentLevel, message)
-	for _, field := range message.GetField() {
-		buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
-	}
-
-	for _, enum := range message.EnumType {
-		buf.Printf("")
-		generateEnum(buf, indentLevel+1, enum)
-	}
-
-	for _, nested := range message.NestedType {
-		if nested.GetOptions().GetMapEntry() {
-			continue
-		}
-		buf.Printf("")
-		generateMessage(buf, indentLevel+1, nested)
-	}
-	buf.Printf("%s}", indent)
-}
-
-func generateExtendedMessage(buf *Buffer, indentLevel int, message *descriptorpb.DescriptorProto) {
-	indent := strings.Repeat(" ", indentLevel*4)
-	for _, opt := range message.GetOptions().GetUninterpretedOption() {
-		if isOptionOneProtoExtends(opt) {
-			name := trimPackageFromName(string(opt.GetStringValue()))
-			buf.Printf("%s    // ↓↓↓↓↓ extends %s", indent, name)
-			parent := allMessageDescriptors[name]
-			generateExtendedMessage(buf, indentLevel, parent)
-			for _, field := range parent.GetField() {
-				buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
-			}
-			buf.Printf("%s    // ↑↑↑↑↑ extends %s", indent, name)
-			buf.Printf("")
+			fields = append(fields, parent.Field...)
+			fields = append(fields, resolveMessageExtends(buf, indentLevel, parent)...)
 		}
 	}
+	return fields
 }
 
-func generateHeadOptions(buf *Buffer, indent string, options []*descriptorpb.UninterpretedOption) {
-	if len(options) == 0 {
-		return
-	}
-	for _, opt := range options {
-		if isOptionOneProtoExtends(opt) {
-			continue
-		}
-		buf.Printf("%s    option %s;", indent, stringifyUninterpretedOption(opt))
-	}
-	buf.Printf("")
-}
-
-func stringifyValueOptions(options []*descriptorpb.UninterpretedOption) string {
-	if len(options) == 0 {
-		return ""
-	}
-	var opts []string
-	for _, opt := range options {
-		opts = append(opts, stringifyUninterpretedOption(opt))
-	}
-	return fmt.Sprintf(" [%s]", strings.Join(opts, ", "))
+func trimPackageFromName(name string) string {
+	return strings.TrimPrefix(name, *pPackage+".")
 }
 
 func isOptionOneProtoExtends(option *descriptorpb.UninterpretedOption) bool {
@@ -261,8 +146,4 @@ func isOptionOneProtoExtends(option *descriptorpb.UninterpretedOption) bool {
 		return true
 	}
 	return false
-}
-
-func trimPackageFromName(name string) string {
-	return strings.TrimPrefix(name, *pPackage+".")
 }
