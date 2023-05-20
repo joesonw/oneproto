@@ -6,8 +6,9 @@ package example.com.users;
 import "proto/group.proto";
 import "oneproto.proto";
 
+
 message User {
-    option (oneproto.extends) = 'example.com.Base';
+    option (oneproto.extends) = 'example.com.Intermediate';
 
     string name = 11;
     string email = 12;

@@ -195,18 +195,7 @@ func generateMessage(buf *Buffer, indentLevel int, message *descriptorpb.Descrip
 	indent := strings.Repeat(" ", indentLevel*4)
 	buf.Printf("%smessage %s {", indent, message.GetName())
 	generateHeadOptions(buf, indent, message.GetOptions().GetUninterpretedOption())
-	for _, opt := range message.GetOptions().GetUninterpretedOption() {
-		if isOptionOneProtoExtends(opt) {
-			name := trimPackageFromName(string(opt.GetStringValue()))
-			buf.Printf("%s    // ↓↓↓↓↓ extends %s", indent, name)
-			parent := allMessageDescriptors[name]
-			for _, field := range parent.GetField() {
-				buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
-			}
-			buf.Printf("%s    // ↑↑↑↑↑ extends %s", indent, name)
-			buf.Printf("")
-		}
-	}
+	generateExtendedMessage(buf, indentLevel, message)
 	for _, field := range message.GetField() {
 		buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
 	}
@@ -224,6 +213,23 @@ func generateMessage(buf *Buffer, indentLevel int, message *descriptorpb.Descrip
 		generateMessage(buf, indentLevel+1, nested)
 	}
 	buf.Printf("%s}", indent)
+}
+
+func generateExtendedMessage(buf *Buffer, indentLevel int, message *descriptorpb.DescriptorProto) {
+	indent := strings.Repeat(" ", indentLevel*4)
+	for _, opt := range message.GetOptions().GetUninterpretedOption() {
+		if isOptionOneProtoExtends(opt) {
+			name := trimPackageFromName(string(opt.GetStringValue()))
+			buf.Printf("%s    // ↓↓↓↓↓ extends %s", indent, name)
+			parent := allMessageDescriptors[name]
+			generateExtendedMessage(buf, indentLevel, parent)
+			for _, field := range parent.GetField() {
+				buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
+			}
+			buf.Printf("%s    // ↑↑↑↑↑ extends %s", indent, name)
+			buf.Printf("")
+		}
+	}
 }
 
 func generateHeadOptions(buf *Buffer, indent string, options []*descriptorpb.UninterpretedOption) {

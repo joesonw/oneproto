@@ -4,11 +4,10 @@ option go_package = 'generated/proto;pb';
 package example.com.groups;
 
 import "proto/user.proto";
-import "proto/base.proto";
 import "oneproto.proto";
 
 message Group {
-  option (oneproto.extends) = 'example.com.Base';
+  option (oneproto.extends) = 'example.com.Intermediate';
 
   string name = 11;
   repeated users.User users = 12;
