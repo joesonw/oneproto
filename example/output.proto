@@ -5,23 +5,41 @@ option go_package = 'generated/proto;pb';
 
 package example.com;
 
+message Base {
+    int64 id = 1;
+    int64 createdAt = 2;
+    int64 updatedAt = 3;
+}
+
+
 message groups {
     message Group {
-        string name = 1;
-        repeated users.User users = 2;
+
+        // ↓↓↓↓↓ extends Base
+        int64 id = 1;
+        int64 createdAt = 2;
+        int64 updatedAt = 3;
+        // ↑↑↑↑↑ extends Base
+
+        string name = 11;
+        repeated users.User users = 12;
     }
 
 }
 
 message users {
     message User {
-        string id = 1;
-        string name = 2;
-        string email = 3;
-        string password = 4;
-        string created_at = 5;
-        string updated_at = 6;
-        repeated groups.Group groups = 7;
+
+        // ↓↓↓↓↓ extends Base
+        int64 id = 1;
+        int64 createdAt = 2;
+        int64 updatedAt = 3;
+        // ↑↑↑↑↑ extends Base
+
+        string name = 11;
+        string email = 12;
+        string password = 13;
+        repeated groups.Group groups = 14;
     }
 
 }

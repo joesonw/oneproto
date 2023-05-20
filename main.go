@@ -21,6 +21,8 @@ var (
 	pInclude  = pflag.StringP("include", "I", "", "include proto file")
 	pOutput   = pflag.StringP("output", "O", "", "output proto file")
 	pPackage  = pflag.StringP("package", "P", "", "package name")
+
+	allMessageDescriptors = map[string]*descriptorpb.DescriptorProto{}
 )
 
 func main() {
@@ -64,14 +66,20 @@ func main() {
 	packageFileGroups := make(map[string][]*descriptorpb.FileDescriptorProto)
 	for _, file := range files {
 		packageFileGroups[file.GetPackage()] = append(packageFileGroups[file.GetPackage()], file)
+		for _, message := range file.GetMessageType() {
+			allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", file.GetPackage(), message.GetName()))] = message
+		}
 	}
 
 	for pkg, packageFiles := range packageFileGroups {
-		paths := strings.Split(strings.TrimPrefix(pkg, *pPackage+"."), ".")
-		indentLevel := len(paths)
-		for i, path := range paths {
-			buf.Printf("%smessage %s {", strings.Repeat(" ", i*4), path)
+		var paths []string
+		if pkg != *pPackage {
+			paths = strings.Split(trimPackageFromName(pkg), ".")
+			for i, path := range paths {
+				buf.Printf("%smessage %s {", strings.Repeat(" ", i*4), path)
+			}
 		}
+		indentLevel := len(paths)
 
 		for _, file := range packageFiles {
 			for _, enum := range file.EnumType {
@@ -187,6 +195,18 @@ func generateMessage(buf *Buffer, indentLevel int, message *descriptorpb.Descrip
 	indent := strings.Repeat(" ", indentLevel*4)
 	buf.Printf("%smessage %s {", indent, message.GetName())
 	generateHeadOptions(buf, indent, message.GetOptions().GetUninterpretedOption())
+	for _, opt := range message.GetOptions().GetUninterpretedOption() {
+		if isOptionOneProtoExtends(opt) {
+			name := trimPackageFromName(string(opt.GetStringValue()))
+			buf.Printf("%s    // ↓↓↓↓↓ extends %s", indent, name)
+			parent := allMessageDescriptors[name]
+			for _, field := range parent.GetField() {
+				buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
+			}
+			buf.Printf("%s    // ↑↑↑↑↑ extends %s", indent, name)
+			buf.Printf("")
+		}
+	}
 	for _, field := range message.GetField() {
 		buf.Printf("%s    %s %s = %d%s;", indent, stringifyField(message, field), field.GetName(), field.GetNumber(), stringifyValueOptions(field.GetOptions().GetUninterpretedOption()))
 	}
@@ -211,6 +231,9 @@ func generateHeadOptions(buf *Buffer, indent string, options []*descriptorpb.Uni
 		return
 	}
 	for _, opt := range options {
+		if isOptionOneProtoExtends(opt) {
+			continue
+		}
 		buf.Printf("%s    option %s;", indent, stringifyUninterpretedOption(opt))
 	}
 	buf.Printf("")
@@ -225,4 +248,15 @@ func stringifyValueOptions(options []*descriptorpb.UninterpretedOption) string {
 		opts = append(opts, stringifyUninterpretedOption(opt))
 	}
 	return fmt.Sprintf(" [%s]", strings.Join(opts, ", "))
+}
+
+func isOptionOneProtoExtends(option *descriptorpb.UninterpretedOption) bool {
+	if names := option.GetName(); len(names) > 0 && names[0].GetNamePart() == "oneproto.extends" {
+		return true
+	}
+	return false
+}
+
+func trimPackageFromName(name string) string {
+	return strings.TrimPrefix(name, *pPackage+".")
 }

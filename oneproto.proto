@@ -1,0 +1,10 @@
+syntax = 'proto3';
+option go_package = 'github.com/joesonw/oneproto/pb;pb';
+
+package oneproto;
+
+import 'google/protobuf/descriptor.proto';
+
+extend google.protobuf.MessageOptions {
+    string extends = 9099;
+}
