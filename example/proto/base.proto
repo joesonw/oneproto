@@ -3,6 +3,10 @@ option go_package = 'generated/proto;pb';
 
 package example.com;
 
+import 'annotation.proto';
+
 message Base {
+    option (test) = 'hello';
+
     int64 id = 1;
 }

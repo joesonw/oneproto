@@ -22,6 +22,7 @@ var (
 	pInclude  = pflag.StringP("include", "I", "", "include proto file")
 	pOutput   = pflag.StringP("output", "O", "", "output proto file")
 	pPackage  = pflag.StringP("package", "P", "", "package name")
+	pOptions  = pflag.Bool("options", false, "extend parent options")
 
 	allMessageDescriptors = map[string]*descriptorpb.DescriptorProto{}
 	parentResolvedMap     = map[*descriptorpb.DescriptorProto]bool{}
@@ -97,10 +98,7 @@ func main() {
 			}
 
 			for _, message := range file.GetMessageType() {
-				message.Field = append(message.Field, resolveMessageExtends(buf, indentLevel, message)...)
-				sort.Slice(message.Field, func(i, j int) bool {
-					return message.Field[i].GetNumber() < message.Field[j].GetNumber()
-				})
+				resolveMessageExtends(buf, indentLevel, message)
 				oneprotou_til.GenerateMessage(buf, indentLevel, message)
 				buf.Printf("")
 			}
@@ -116,12 +114,11 @@ func main() {
 	}
 }
 
-func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *descriptorpb.DescriptorProto) []*descriptorpb.FieldDescriptorProto {
+func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *descriptorpb.DescriptorProto) {
 	if parentResolvedMap[message] {
-		return nil
+		return
 	}
 	parentResolvedMap[message] = true
-	var fields []*descriptorpb.FieldDescriptorProto
 	for i, option := range message.GetOptions().GetUninterpretedOption() {
 		if isOptionOneProtoExtends(option) {
 			message.Options.UninterpretedOption = append(message.Options.UninterpretedOption[:i], message.Options.UninterpretedOption[i+1:]...)
@@ -130,11 +127,16 @@ func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *
 			if parent == nil {
 				log.Fatalf("unable to find message %s", option.GetStringValue())
 			}
-			fields = append(fields, parent.Field...)
-			fields = append(fields, resolveMessageExtends(buf, indentLevel, parent)...)
+			resolveMessageExtends(buf, indentLevel, parent)
+			message.Field = append(message.Field, parent.Field...)
+			if *pOptions {
+				message.Options.UninterpretedOption = append(message.Options.UninterpretedOption, parent.Options.UninterpretedOption...)
+			}
 		}
 	}
-	return fields
+	sort.Slice(message.Field, func(i, j int) bool {
+		return message.Field[i].GetNumber() < message.Field[j].GetNumber()
+	})
 }
 
 func trimPackageFromName(name string) string {
