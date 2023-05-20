@@ -1,0 +1,14 @@
+syntax = 'proto3';
+option go_package = 'generated/proto;pb';
+
+package example.com.users.nested;
+
+import "proto/group.proto";
+import "oneproto.proto";
+
+
+message Test {
+    option (oneproto.extends) = 'example.com.Intermediate';
+
+    string name = 11;
+}

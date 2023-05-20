@@ -28,6 +28,13 @@ var (
 	parentResolvedMap     = map[*descriptorpb.DescriptorProto]bool{}
 )
 
+type PackageFileGroup struct {
+	name        string
+	fullName    string
+	files       []*descriptorpb.FileDescriptorProto
+	subPackages map[string]*PackageFileGroup
+}
+
 func main() {
 	pflag.Parse()
 	if *pTemplate == "" || *pOutput == "" {
@@ -68,47 +75,72 @@ func main() {
 	buf.Printf(string(templateContent))
 
 	// group files by package name
-	packageFileGroups := make(map[string][]*descriptorpb.FileDescriptorProto)
+	packageFileGroup := &PackageFileGroup{
+		subPackages: map[string]*PackageFileGroup{},
+	}
 	for _, file := range files {
-		packageFileGroups[file.GetPackage()] = append(packageFileGroups[file.GetPackage()], file)
+		pkg := file.GetPackage()
+		var paths []string
+		if pkg != *pPackage {
+			paths = strings.Split(trimPackageFromName(pkg), ".")
+		}
+
+		if len(paths) == 0 {
+			packageFileGroup.files = append(packageFileGroup.files, file)
+		} else {
+			var currentGroup = packageFileGroup
+			for i, path := range paths {
+				if currentGroup.subPackages[path] == nil {
+					currentGroup.subPackages[path] = &PackageFileGroup{
+						name:        path,
+						fullName:    strings.Join(paths[:i+1], "."),
+						subPackages: map[string]*PackageFileGroup{},
+					}
+				}
+				currentGroup = currentGroup.subPackages[path]
+			}
+			currentGroup.files = append(currentGroup.files, file)
+		}
+
 		for _, message := range file.GetMessageType() {
 			allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", file.GetPackage(), message.GetName()))] = message
 		}
 	}
 
-	for pkg, packageFiles := range packageFileGroups {
-		var paths []string
-		if pkg != *pPackage {
-			paths = strings.Split(trimPackageFromName(pkg), ".")
-			for i, path := range paths {
-				buf.Printf("%smessage %s {", strings.Repeat(" ", i*4), path)
-			}
+	var iteratePackageGroup func(group *PackageFileGroup, identLevel int)
+	iteratePackageGroup = func(group *PackageFileGroup, identLevel int) {
+		if group.name != "" {
+			buf.Printf("%smessage %s {", strings.Repeat(" ", identLevel*4), group.name)
 		}
-		indentLevel := len(paths)
 
-		for _, file := range packageFiles {
+		for _, file := range group.files {
 			for _, enum := range file.EnumType {
-				oneprotou_til.GenerateEnum(buf, indentLevel, enum)
+				oneprotou_til.GenerateEnum(buf, identLevel+1, enum)
 				buf.Printf("")
 			}
 
 			for _, service := range file.Service {
-				oneprotou_til.GenerateService(buf, indentLevel, service)
+				oneprotou_til.GenerateService(buf, identLevel+1, service)
 				buf.Printf("")
 			}
 
 			for _, message := range file.GetMessageType() {
-				resolveMessageExtends(buf, indentLevel, message)
-				oneprotou_til.GenerateMessage(buf, indentLevel, message)
+				resolveMessageExtends(buf, identLevel+1, message)
+				oneprotou_til.GenerateMessage(buf, identLevel+1, message)
 				buf.Printf("")
 			}
 		}
 
-		for i := range paths {
-			buf.Printf("%s}", strings.Repeat(" ", i*4))
+		for _, subPackage := range group.subPackages {
+			iteratePackageGroup(subPackage, identLevel+1)
+		}
+		if group.name != "" {
+			buf.Printf("%s}", strings.Repeat(" ", identLevel*4))
 		}
 		buf.Printf("")
 	}
+	iteratePackageGroup(packageFileGroup, -1)
+
 	if err := os.WriteFile(*pOutput, buf.Bytes(), 0644); err != nil {
 		log.Fatalln(err)
 	}
