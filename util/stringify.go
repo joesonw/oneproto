@@ -33,7 +33,7 @@ func StringifyField(message *descriptorpb.DescriptorProto, field *descriptorpb.F
 	repeated := field.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
 	if field.Type == nil {
 		name := field.GetTypeName()
-		for _, nested := range message.NestedType {
+		for _, nested := range message.GetNestedType() {
 			if name == nested.GetName() && strings.HasSuffix(name, "Entry") { // map entry
 				return fmt.Sprintf("map<%s,%s>", StringifyField(nested, nested.Field[0]), StringifyField(nested, nested.Field[1]))
 			}

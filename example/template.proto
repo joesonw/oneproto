@@ -4,3 +4,5 @@ syntax = 'proto3';
 option go_package = 'generated/proto;pb';
 
 package example.com;
+
+import 'google/protobuf/descriptor.proto';

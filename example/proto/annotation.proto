@@ -8,3 +8,7 @@ import 'google/protobuf/descriptor.proto';
 extend google.protobuf.MessageOptions {
     string test = 3001;
 }
+
+extend google.protobuf.MessageOptions {
+    string abc = 3002;
+}

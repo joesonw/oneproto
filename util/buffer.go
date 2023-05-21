@@ -24,3 +24,15 @@ func (b *Buffer) String() string {
 func (b *Buffer) Bytes() []byte {
 	return b.buf.Bytes()
 }
+
+func (b *Buffer) Close() error {
+	return nil
+}
+
+func (b *Buffer) Write(p []byte) (int, error) {
+	return b.buf.Write(p)
+}
+
+func (b *Buffer) Read(p []byte) (int, error) {
+	return b.buf.Read(p)
+}

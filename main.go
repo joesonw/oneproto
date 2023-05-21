@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	oneprotou_til "github.com/joesonw/oneproto/util"
+	oneproto_util "github.com/joesonw/oneproto/util"
 )
 
 var (
@@ -71,7 +71,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	buf := oneprotou_til.NewBuffer()
+	buf := oneproto_util.NewBuffer()
 	buf.Printf(string(templateContent))
 
 	// group files by package name
@@ -115,20 +115,23 @@ func main() {
 
 		for _, file := range group.files {
 			for _, enum := range file.EnumType {
-				oneprotou_til.GenerateEnum(buf, identLevel+1, enum)
+				oneproto_util.GenerateEnum(buf, identLevel+1, enum)
 				buf.Printf("")
 			}
 
 			for _, service := range file.Service {
-				oneprotou_til.GenerateService(buf, identLevel+1, service)
+				oneproto_util.GenerateService(buf, identLevel+1, service)
 				buf.Printf("")
 			}
 
 			for _, message := range file.GetMessageType() {
-				resolveMessageExtends(buf, identLevel+1, message)
-				oneprotou_til.GenerateMessage(buf, identLevel+1, message)
+				resolveMessageExtends(message)
+				oneproto_util.GenerateMessage(buf, identLevel+1, message)
 				buf.Printf("")
 			}
+
+			oneproto_util.GenerateExtensions(buf, identLevel+1, nil, file.GetExtension())
+			buf.Printf("")
 		}
 
 		for _, subPackage := range group.subPackages {
@@ -146,29 +149,42 @@ func main() {
 	}
 }
 
-func resolveMessageExtends(buf *oneprotou_til.Buffer, indentLevel int, message *descriptorpb.DescriptorProto) {
+func resolveMessageExtends(message *descriptorpb.DescriptorProto) {
 	if parentResolvedMap[message] {
 		return
 	}
+	for _, nested := range message.GetNestedType() {
+		resolveMessageExtends(nested)
+	}
+
 	parentResolvedMap[message] = true
+	var options []*descriptorpb.UninterpretedOption
+	var fields []*descriptorpb.FieldDescriptorProto
 	for i, option := range message.GetOptions().GetUninterpretedOption() {
 		if isOptionOneProtoExtends(option) {
 			message.Options.UninterpretedOption = append(message.Options.UninterpretedOption[:i], message.Options.UninterpretedOption[i+1:]...)
-			buf.Printf("%s// extends %s", strings.Repeat(" ", 4*indentLevel), option.GetStringValue())
 			parent := allMessageDescriptors[trimPackageFromName(string(option.GetStringValue()))]
 			if parent == nil {
 				log.Fatalf("unable to find message %s", option.GetStringValue())
 			}
-			resolveMessageExtends(buf, indentLevel, parent)
-			message.Field = append(message.Field, parent.Field...)
-			if message.Options == nil {
-				message.Options = &descriptorpb.MessageOptions{}
-			}
-			if *pOptions {
-				message.Options.UninterpretedOption = append(message.Options.UninterpretedOption, parent.GetOptions().GetUninterpretedOption()...)
+			resolveMessageExtends(parent)
+			fields = append(fields, parent.Field...)
+			options = append(options, parent.GetOptions().GetUninterpretedOption()...)
+		}
+	}
+
+	message.Field = append(message.Field, fields...)
+	if *pOptions {
+		if message.Options == nil {
+			message.Options = &descriptorpb.MessageOptions{}
+		}
+		for i := range options {
+			if isOptionOneProtoExtends(options[i]) {
+				options = append(options[:i], options[i+1:]...)
 			}
 		}
 	}
+	message.Options.UninterpretedOption = append(message.Options.UninterpretedOption, options...)
 	sort.Slice(message.Field, func(i, j int) bool {
 		return message.Field[i].GetNumber() < message.Field[j].GetNumber()
 	})

@@ -5,23 +5,32 @@ option go_package = 'generated/proto;pb';
 
 package example.com;
 
+import 'google/protobuf/descriptor.proto';
+
+extend google.protobuf.MessageOptions {
+    string test = 3001;
+    string abc = 3002;
+}
+
 message Base {
     option (test) = 'hello';
 
     int64 id = 1;
+
 }
 
-// extends example.com.Base
+
 message Intermediate {
     option (test) = 'hello';
 
     int64 id = 1;
     int64 createdAt = 2;
     int64 updatedAt = 3;
+
 }
 
+
 message groups {
-    // extends example.com.Intermediate
     message Group {
         option (test) = 'hello';
 
@@ -30,12 +39,13 @@ message groups {
         int64 updatedAt = 3;
         string name = 11;
         repeated users.User users = 12;
+
     }
+
 
 }
 
 message users {
-    // extends example.com.Intermediate
     message User {
         option (test) = 'hello';
 
@@ -46,10 +56,11 @@ message users {
         string email = 12;
         string password = 13;
         repeated groups.Group groups = 14;
+
     }
 
+
     message nested {
-        // extends example.com.Intermediate
         message Test {
             option (test) = 'hello';
 
@@ -57,7 +68,9 @@ message users {
             int64 createdAt = 2;
             int64 updatedAt = 3;
             string name = 11;
+
         }
+
 
     }
 
