@@ -6,5 +6,5 @@ package oneproto;
 import 'google/protobuf/descriptor.proto';
 
 extend google.protobuf.MessageOptions {
-    string extends = 2099;
+    repeated string extends = 2099;
 }
