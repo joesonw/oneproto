@@ -103,7 +103,8 @@ func main() {
 		}
 
 		for _, message := range file.GetMessageType() {
-			allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", file.GetPackage(), message.GetName()))] = message
+			fillAllMessageDescriptors(file.GetPackage(), message)
+			//allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", file.GetPackage(), message.GetName()))] = message
 		}
 	}
 
@@ -159,10 +160,10 @@ func resolveMessageExtends(message *descriptorpb.DescriptorProto) {
 
 	parentResolvedMap[message] = true
 	var options []*descriptorpb.UninterpretedOption
+	var keepOptions []*descriptorpb.UninterpretedOption
 	var fields []*descriptorpb.FieldDescriptorProto
-	for i, option := range message.GetOptions().GetUninterpretedOption() {
+	for _, option := range message.GetOptions().GetUninterpretedOption() {
 		if isOptionOneProtoExtends(option) {
-			message.Options.UninterpretedOption = append(message.Options.UninterpretedOption[:i], message.Options.UninterpretedOption[i+1:]...)
 			parent := allMessageDescriptors[trimPackageFromName(string(option.GetStringValue()))]
 			if parent == nil {
 				log.Fatalf("unable to find message %s", option.GetStringValue())
@@ -170,7 +171,12 @@ func resolveMessageExtends(message *descriptorpb.DescriptorProto) {
 			resolveMessageExtends(parent)
 			fields = append(fields, parent.Field...)
 			options = append(options, parent.GetOptions().GetUninterpretedOption()...)
+		} else {
+			keepOptions = append(keepOptions, option)
 		}
+	}
+	if message.Options != nil {
+		message.Options.UninterpretedOption = keepOptions
 	}
 
 	message.Field = append(message.Field, fields...)
@@ -199,4 +205,11 @@ func isOptionOneProtoExtends(option *descriptorpb.UninterpretedOption) bool {
 		return true
 	}
 	return false
+}
+
+func fillAllMessageDescriptors(pkg string, message *descriptorpb.DescriptorProto) {
+	allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", pkg, message.GetName()))] = message
+	for _, sub := range message.GetNestedType() {
+		fillAllMessageDescriptors(fmt.Sprintf("%s.%s", pkg, message.GetName()), sub)
+	}
 }
