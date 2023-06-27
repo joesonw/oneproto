@@ -104,12 +104,18 @@ func main() {
 
 		for _, message := range file.GetMessageType() {
 			fillAllMessageDescriptors(file.GetPackage(), message)
-			//allMessageDescriptors[trimPackageFromName(fmt.Sprintf("%s.%s", file.GetPackage(), message.GetName()))] = message
 		}
 	}
 
 	var iteratePackageGroup func(group *PackageFileGroup, identLevel int)
 	iteratePackageGroup = func(group *PackageFileGroup, identLevel int) {
+		for _, file := range group.files {
+			for _, service := range file.Service {
+				oneproto_util.GenerateService(buf, 0, service)
+				buf.Printf("")
+			}
+		}
+
 		if group.name != "" {
 			buf.Printf("%smessage %s {", strings.Repeat(" ", identLevel*4), group.name)
 		}
@@ -117,11 +123,6 @@ func main() {
 		for _, file := range group.files {
 			for _, enum := range file.EnumType {
 				oneproto_util.GenerateEnum(buf, identLevel+1, enum)
-				buf.Printf("")
-			}
-
-			for _, service := range file.Service {
-				oneproto_util.GenerateService(buf, identLevel+1, service)
 				buf.Printf("")
 			}
 
